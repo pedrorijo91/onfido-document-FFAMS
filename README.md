@@ -64,7 +64,7 @@ A: We can start by identifying a few components from the problem description:
 
 Let's also see the current architecture before looking into a solution:
 
-![alt text](./monolithic.png "Old system architecture")
+![alt text](./diagrams/monolithic.png "Old system architecture")
 
 ### FFAMS and Alerting system
 
@@ -87,7 +87,7 @@ Just as we are now moving from the current fire risk assessment strategy into a 
 
 To accomplish that we propose to create an internal abstraction on the FFAMS in order to easily change between different strategies. This would be nothing more than creating a common interface (which translates into a java `interface` or ruby superclass/mixin).
 
-![alt text](./ffams_detail.png "FFAMS fire detection strategy abstraction")
+![alt text](./diagrams/ffams_detail.png "FFAMS fire detection strategy abstraction")
 
 ### Fire Risk scoring models
 
@@ -99,7 +99,7 @@ This gateway also allows to A/B test retrained models or new ML algorithms for i
 
 Bellow we can see the overall system architecture proposed as a solution for this problem
 
-![alt text](./architecture_overview.png "General system architecture")
+![alt text](./diagrams/architecture_overview.png "General system architecture")
 
 ### Alternative considerations
 
