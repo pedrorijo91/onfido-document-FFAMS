@@ -1,0 +1,13 @@
+{
+  "name": "FFAMS - pedro rijo",
+  "description": "Onfido challenge as Scala PLay framework app",
+  "scripts": {
+  },
+  "addons": [],
+  "image": "heroku/scala",
+  "buildpacks": [
+    {
+      "url": "heroku/scala"
+    }
+  ]
+}
