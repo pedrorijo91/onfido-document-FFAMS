@@ -34,6 +34,8 @@ class MlFireDetectionStrategy @Inject()(
    * @return The weighted fire risk given the weight and fire score risk of each vegetation type. It returns [[None]]
    *         there was a problem assessing the fire risk for too many vegetation types
    */
+    // TODO it may make sense to create an easy way to exchange this computation strategy. In the future we may want to
+    // look at the highest risk for instance
   private def computeWeightedRisk(
                                    vegetationWeights: Map[Vegetation, Double],
                                    vegetationFireScores: Map[Vegetation, Option[Double]]

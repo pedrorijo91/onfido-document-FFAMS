@@ -71,7 +71,10 @@ Now we have different possibilities on how these two components communicate:
 The second approach makes it easier to have different Alerting systems, each dedicated to a different channel (email, sms, population direct alerts, emergency teams dedicated protocols, etc). In this approach we make Alerting system as "dumb" as possible. It should only pick the alert and send through the proper channel. It's up to the event publisher (FFAMS) to check the alerting threshold. The advantage here is to avoid adding an event for every request that we get.
 
 Finally, we also need to take into account alert silence. If we detect a fire in `t_0` for `area_0`, we will probably keep detecting fire in that area for a long time. Until the fire is put off, we want to avoid any more alarms. But as soon as we consider the fire is put off, we want to check if it didn't start again.
-The proposed way is to add that information into a cache like Redis, so that it can be accessed efficiently by any FFAMS instance. We avoid using a persistent storage which requires a bit more work as this information can disappear and the consequence wouldn't be very problematic. As a bonus, this information can also be used to skip calls to scoring models: if there was a fire in a certain moment, we do not need to keep looking for fires in that area as it takes some time to put the fire off.
+
+The proposed way is to add that information into a cache like Redis, so that it can be accessed efficiently by any FFAMS instance. We could instead use a persistent storage, but since data can be recomputed with small consequences, we stick to Redis for efficiency. As an extra, Redis maintenance is typically easier than persistent storage.  
+
+This information can also be used in another way: to skip calls to scoring models. If there was a fire in a certain moment, we do not need to keep looking for fires in that area as it takes some time to put the fire off. This means that if a fire starts, the image for the same are won't introduce a lot of load in the system as everything is cached.
 
 ### FFAMS support for future strategies
 
@@ -93,6 +96,8 @@ Bellow we can see the overall system architecture proposed as a solution for thi
 
 ![alt text](./diagrams/architecture_overview.png "General system architecture")
 
+Note that while it's not explicit in the diagram, the FFAMS, Alert Service, Classifier, Scoring Gateway, and Scoring models are all replicated.
+
 ### Alternative considerations
 
 Since there's no state in this system, this could potentially be a good use case for a serverless architecture. 
@@ -106,7 +111,7 @@ While the vegetation classifier and the scoring models are not a good fit becaus
 Most of the communication between the components is done using REST APIs. 
 Given the simplicity of the services there's no need to use something more powerful as GraphQL. 
 
-Given the type of data, we'd start by using JSON on the requests. Protobuffers could be interesting if our data model evolved regularly over time, but since we don't expect very regular updates we can sacrifice the potential performance wins by using JSON which is much more widespread and supported
+Given the type of data, we'd start by using JSON on the requests. Protobuffers could be interesting if our data model evolved regularly over time, but since we don't expect very regular schema updates we can sacrifice the potential performance wins by using JSON which is much more widespread and supported
 
 The only exception in the communication is between the FFAMS component and the Alert Service component. These 2 components are decoupled and use async communication through events as explained before. This allows to expand to different alerting mechanisms with less changes.
 
@@ -117,8 +122,8 @@ The application as a whole just exposes a public operation: image upload for ris
 Each of the components offers a minimal set of operations as well. 
 
 * The models and the gateway just classify/score the input. 
-* It would be a nice-to-have for models to return the area of the image which seems to be in fire / fire risk, or the fire level (simple fire vs complicated fires)
-* Besides that, white-box explanation could be relevant for rescue teams (tbh not sure if it's very applicable to image processing)
+    * It would be a nice-to-have for models to return the area of the image which seems to be in fire / fire risk, or the fire level (simple fire vs complicated fires)
+    * Besides that, white-box explanation could be relevant for rescue teams (tbh not sure if it's very applicable to image processing)
 * FFAMS just receives the image. It then creates the alerting event with all the required information (position, timestamp, maybe image author - wether a specific sensor or human - so that alert teams can better understand the alert)
 
 ## Infrastructure
@@ -127,15 +132,15 @@ We believe there are several equally good solutions on this topic.
 
 ### Programming language
 
-Starting with the programming language: taking into account the fact that everything is separated and exposed through REST APIs, the programming language is not a big concern. We could have FFAMS implemented in Python, Ruby, Java, Go, etc. The downside of Ruby and Python implementations could be regarding performance (topic to be assessed in the section bellow). In every language there are standard frameworks like Rails, Django, Spring, etc. Considering the codebase is already built in Django, we would keep it, to avoid reinventing the wheel and throw away existing knowledge in the codebase.
+Starting with the programming language: taking into account the fact that every component is decoupled and exposed through REST APIs, the programming language is not a big concern. We could have FFAMS implemented in Python, Ruby, Java, Go, etc. Each of these languages has established web frameworks. The downside of Ruby and Python implementations could be regarding performance (topic to be assessed in the section bellow). Considering the codebase is already built in Django, the decision here would be to keep FFAMS as a Django app, to avoid reinventing the wheel and throw away existing knowledge in the codebase.
 
-For the Scoring Gateway, we want to keep in mind we aim to make requests in parallel for each model for performance reasons. As such JVM languages or Go can have a slight advantage over Ruby/Python (there may and probably have been improvements in both languages regarding concurrency). 
+For the Scoring Gateway, we want to keep in mind we aim to make requests in parallel for each model for performance reasons. As such JVM languages or Go can have a slight advantage over Ruby/Python on dealing with parallelism (there may and probably have been improvements in both languages regarding concurrency and parallelism). 
 
 ### Event Bus
 
 Regarding the event bus, RabbitMQ is a standard message-broker software that is able to scale and deal with what we expect in this system. 
 
-An alternative would be to use Kafka if we wanted a more complex use case, otherwise we would avoid it, as we'd need more devops to deal with the extra zookeeper requirement.
+An alternative would be to use Kafka if we wanted a more complex use case, otherwise we would avoid it, as we'd need more devops work to deal with the extra zookeeper requirement.
 
 If we assume everything is deployed in a cloud provider, like AWS, in order to scale more efficiently, then Amazon SQS could be the easier solution to integrate on our system.
 
@@ -153,22 +158,22 @@ As stated before, we assume the system serves a single country forests.
 
 Let's take Yellowstone National Park as a reference. The park is about 9.000 square kilometers. Most countries don't have a national forest area as big as Yellowstone, so let's take its size as a reference as well.
 
-If we use the 100m x 100m image resolution as stated in the problem, this means we need 1M images to cover all the area. 
+If we use the 100m x 100m image resolution as stated in the problem, this means we need almost 1M images to cover all the area. We shouldn't expect to have drones covering all the area at the same time. Nor dedicated satellites for each forest. So this estimation should be a very safe upper bound.
 
 We also want to look at each image frequently to detect a starting fire quickly. We don't need to look at every second to the same area, but we don't want to wait half an hour to detect a new fire as mountain fires can spread very quickly. Let's use 5 minutes intervals.
 
-This means we need to analyse 1M images every 5 minutes (more than 3.000 requests per second). This is a considerable load, but it's also one of the biggest national parks in the world.
+This means we need to analyse 1M images every 5 minutes (more than 3.000 requests per second). This is a considerable load, but it's also one of the biggest national parks in the world. On the other hand, if we use France biggest forest as an example, it has 500 square kilometers, so we'd be talking about 50.000 images per 5 minutes, which means 170 requests per second. This is a much easier load to handle.
 
 There are two obvious ways to decrease the system load and save costs:
 
-* images with bigger resolution: if instead of a 100m x 100m image we had 1000m x 1000m images, this would decrease to around 10.000 images, making 33 requests per second
-* decrease image frequency: if instead of looking every 5 minutes to each area, we looked every 10 minutes, this would decrease to 1600 requests per second. Which is still a considerable amount, and we start to take some time to detect new fires.
+* images with bigger resolution: if instead of a 100m x 100m image we had 1000m x 1000m images, this would decrease to around 10.000 images for Yellowstone, making 33 requests per second
+* decrease image frequency: if instead of looking every 5 minutes to each area, we looked every 10 minutes, this would decrease to 1600 requests per second. Which is still a considerable amount.
 
 More advanced optimizations could follow after monitoring the system performance and finding the bottlenecks. 
 
 * If the bottleneck is on the number of requests, the previous strategies can be useful. 
 * If the bottleneck is in the classification model, we could try to cache results using position or image comparison
-* If the bottleneck is on the scoring models, we can assume scores are somehow static (we can assume they change every day, but not likely every hour), and cache the mapping between vegetation type and fire risk score.
+* If the bottleneck is on the scoring models, we can assume scores are somehow static (even if they change every day, they will not likely change every hour), and cache the mapping between vegetation type and fire risk score.
 
 ## Reliability
 
@@ -182,8 +187,6 @@ Keeping in mind we have fallback human watchers, it may not be cost-effective to
 2. When we talk about really high availability targets the problem starts to be in the time to fix problems, as we the SLAs don't allow much time to human intervention. In these scenarios adding efficient auto-healing mechanisms becomes mandatory.
 
 ## Redundancy
-
-Since there is no information persisted in the system, we avoid some kind of problems with storage. 
 
 There will be connectivity problems as with any system. We expect most of the problems to be flaky, and solvable using a retry mechanism (use exponential back-off). In case the problem is due to one instance being down, we rely on replication to try the request with another replica, minimizing the change of not being able to actually process the image. 
 
@@ -229,6 +232,10 @@ First, there's the problem the system could take some time to scale. Then there'
 
 ## Risks & Open Questions
 
-One of the unknowns is that we don't know how or when are requests made. Is it regularly? is it all day? is it just during some hours of the day? We also don't know where are we going to have a bottleneck: is it in the classifier? in the scoring model? in the alerting system?
+The biggest unknown at this time is the expected load. Are we going to have a 24/7 stream of images? Are we just going to have an areal view every hour?
 
-The other classical unknown is that we don't know what's the roadmap for the system. How are we thinking in improving? which kind of new features we want to add in the future?
+Another unknown is that we don't know how or when are requests made. Is it regularly? are they batched? is it all day? is it just during some hours of the day?
+
+Finally, we also don't know where are we going to have a bottleneck: is it in the classifier? in the scoring model? in the alerting system? Without initial measurements of the system is hard to predict the overal. behaviour.
+
+Far from a technical unkown, but one thing missing at this moment is the system roadmap vision. How are we thinking in improving? which kind of new features we want to add in the future?
