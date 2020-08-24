@@ -12,6 +12,7 @@ We do a couple of simplifications in the code:
 * We don't send an alert to an event-bus for the same reason: it would be cumbersome to add that infrastructure in this example project
 * We represent an Image as a list of chars, each representing a type of vegetation. For instance "AABC" would represent a 2x2 image where we could see 3 types of vegetations
 * Dependency Injection is not properly made. TBH this was due to lack of time: the Play Framework has been changing a lot some internal details and I decided to skip that part as a trade-off.
+* There are a few TODO comments in the code showing points of improvement
 
 ## How to run
 

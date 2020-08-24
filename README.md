@@ -20,13 +20,13 @@ Allowing stateful models would require a bit of investigation. Naive solutions w
 
 ## Latency 
 
-While we don't want to get an alert for a fire 3 days after it starts, we don't actually need milliseconds latency for an alert upon receiving an request/image. If we take 1 minute (as an example) to generate the alert (which is a lot of time in computation time), there shouldn't be any problem. Obviously, the faster the better, but this may allow us to have simpler solutions while evaluating trade-offs
+While we don't want to get an alert for a fire 3 days after it starts, we don't actually need milliseconds latency for an alert upon receiving a request/image. If we take 1 minute (as an example) to generate the alert (which is a lot of time in computation time), there shouldn't be any problem. Obviously, the faster the better, but this may allow us to have simpler solutions while evaluating trade-offs
 
 ## System usage
 
 The system acts upon receiving aerial images from a certain area. As such, we can assume it's only going to be accessible to specific systems and not global users (normal people don't take aerial images). 
 
-The system will probably get the images from satellites, weather ballons, or fire brigade drones.
+The system will probably get the images from satellites, weather balloons, or fire brigade drones.
 
 We also assume that "fire watchers" still exist across dangerous areas. They can be useful as fallback mechanism, or to detect false positives.
 
@@ -34,9 +34,7 @@ The system will probably not be a world wide system, but more like regional or n
 
 # Solution
 
-Q: How are you intending to solve this problem? Start with an overview/broad strokes.
-
-A: As of now, we already have a solution in place, but with some restrictions that we want to overcome. In order to support fire detection in other areas, we will need to use the new machine learning models. 
+As of now, we already have a solution in place, but with some restrictions that we want to overcome. In order to support fire detection in other areas, we will need to use the new machine learning models. 
 
 Overall, upon receiving a request for fire assessment, which contains the image we 
 
@@ -50,13 +48,7 @@ Overall, upon receiving a request for fire assessment, which contains the image 
 
 ## Architecture
 
-* What does this service or feature look like? Please draw diagrams where possible
-* Why does it look like that?
-* Consider the service/feature boundaries; what business capability is this service
-responsible for?
-* What data does it own?
-
-A: We can start by identifying a few components from the problem description:
+We can start by identifying a few components from the problem description:
 
 * We have the existing FFAMS application
 * We have the vegetation classifier
@@ -111,19 +103,16 @@ While the vegetation classifier and the scoring models are not a good fit becaus
 
 ## Dependencies & Integration
 
-How does it interact with existing services/functionality/components, both upstream and downstream? 
-Consider both existing and planned software and services
-
-A: Most of the communication is done using REST API's. 
+Most of the communication between the components is done using REST APIs. 
 Given the simplicity of the services there's no need to use something more powerful as GraphQL. 
 
 Given the type of data, we'd start by using JSON on the requests. Protobuffers could be interesting if our data model evolved regularly over time, but since we don't expect very regular updates we can sacrifice the potential performance wins by using JSON which is much more widespread and supported
 
+The only exception in the communication is between the FFAMS component and the Alert Service component. These 2 components are decoupled and use async communication through events as explained before. This allows to expand to different alerting mechanisms with less changes.
+
 ## Interfaces
 
-Q: What interfaces and operations might this expose?
-
-A: The application as a whole just exposes a public operation: image upload for risk detection.
+The application as a whole just exposes a public operation: image upload for risk detection.
 
 Each of the components offers a minimal set of operations as well. 
 
@@ -134,10 +123,7 @@ Each of the components offers a minimal set of operations as well.
 
 ## Infrastructure
 
-Q: What pieces of infrastructure are you using/reusing? E.g. Amazon service, open source libraries, databases, programming languages? 
-Which dependencies are you introducing?
-
-A: We believe there are several equally good solutions on this topic.
+We believe there are several equally good solutions on this topic.
 
 ### Programming language
 
@@ -157,70 +143,57 @@ If we assume everything is deployed in a cloud provider, like AWS, in order to s
 
 ### Caching
 
-We are choosing Redis over other possible caches because it's an easy to use and performant key-value in-memory storage. It has been more than battle-tested, it has bindings for all languages, and it has a good community around. Furthermore, it's possible to expand into a redis cluster if we need non-volatile data.
+We are choosing Redis over other possible caches because it's an easy to use and high-performing key-value in-memory storage. It has been battle-tested, it has bindings for all common programming languages, and it has a good community around. Furthermore, it's possible to expand into a redis cluster if we need non-volatile data in the future.
 
 ## Scale & Performance
 
-Q: How does the feature scale?
+One of the important aspects of the system, is that it's stateless. As such, it becomes easier to scale horizontally. 
 
-* What are the expected scale characteristics (at least back of an envelope) for this service? Consider CPU, memory and storage. Can it horizontally scale?
-* How might your design decisions increase/reduce cost?
+As stated before, we assume the system serves a single country forests. 
 
-A: One of the important aspects of the system, is that it's stateless. As such, there's nothing preventing from scaling horizontally. Of course, it's just a trade-off between cost and performance.
-
-As stated before, we assume the system serves a single country. Even in a single country, this system purpose is to monitor forests and national parks (let's call them 'relevant areas'). 
-
-Let's take Yellowstone National Park as a reference. The park is about 9.000 square kilometers. Most countries don't have a total relevant area as big as Yellowstone, so let's take its size as a reference as well.
+Let's take Yellowstone National Park as a reference. The park is about 9.000 square kilometers. Most countries don't have a national forest area as big as Yellowstone, so let's take its size as a reference as well.
 
 If we use the 100m x 100m image resolution as stated in the problem, this means we need 1M images to cover all the area. 
 
 We also want to look at each image frequently to detect a starting fire quickly. We don't need to look at every second to the same area, but we don't want to wait half an hour to detect a new fire as mountain fires can spread very quickly. Let's use 5 minutes intervals.
 
-This means we need to analyse 1M images every 5 minutes (more than 3.000 requests per second). This is a considerable load.
+This means we need to analyse 1M images every 5 minutes (more than 3.000 requests per second). This is a considerable load, but it's also one of the biggest national parks in the world.
 
 There are two obvious ways to decrease the system load and save costs:
 
 * images with bigger resolution: if instead of a 100m x 100m image we had 1000m x 1000m images, this would decrease to around 10.000 images, making 33 requests per second
 * decrease image frequency: if instead of looking every 5 minutes to each area, we looked every 10 minutes, this would decrease to 1600 requests per second. Which is still a considerable amount, and we start to take some time to detect new fires.
 
-More advanced optimizations could follow after monitoring the system performance and finding the bottlenecks. If the bottleneck is on the number of requests, the previous strategies can be useful. If the bottleneck is on the scoring models, then we could try to find a way to cache results by image comparison. While a small gap of scoring is not very problematic, if it becomes a long gap it would be a huge risk. To avoid reaching long gaps we rely on monitoring to act quickly (see corresponding section bellow)
+More advanced optimizations could follow after monitoring the system performance and finding the bottlenecks. 
+
+* If the bottleneck is on the number of requests, the previous strategies can be useful. 
+* If the bottleneck is in the classification model, we could try to cache results using position or image comparison
+* If the bottleneck is on the scoring models, we can assume scores are somehow static (we can assume they change every day, but not likely every hour), and cache the mapping between vegetation type and fire risk score.
 
 ## Reliability
 
-Q: What level of reliability are you aiming for? 
-If client-side software, what range of devices and OS versions are you aiming to test on and support? 
-If a service, are you comfortable achieving 99.95% (or higher) availability? 
-Is the software experimental or aiming to support thousands-millions of users straightaway?
+The proposed solution uses standard replication and retry mechanisms to provide high availability, so 99.95% should be a doable target. 
 
-A: The proposed solution uses standard replication and retry mechanisms to provide high availability, so 99.95% should be a doable target. As with any other software development decision, now it's a matter of evaluating trade-offs. Keeping in mind we have fallback human watchers, it may not be cost-effective to aim for higher availabilities as the software complexity and monthly costs would increase a lot. Despite that, here are two suggestions for achieving higher availability:
+As with any other software development decision, now it's a matter of evaluating trade-offs. 
+Keeping in mind we have fallback human watchers, it may not be cost-effective to aim for higher availabilities as the software complexity and monthly costs would increase a lot. Despite that, here are two suggestions for achieving higher availability:
 
 1. deploy instances across different data centers and regions. This ensures that if a particular data center gets a problem (maybe due to natural catastrophes). there's another set of instances in another data center to serve the requests even with higher latency. This can be achieved with active-active or active-passive DCs strategies.
 
-2. When we talk about really high availability targets the problem starts to be in the time to fix as we the requirements don't allow much time to human intervention. In these scenarios adding efficient auto-healing mechanisms becomes mandatory.
+2. When we talk about really high availability targets the problem starts to be in the time to fix problems, as we the SLAs don't allow much time to human intervention. In these scenarios adding efficient auto-healing mechanisms becomes mandatory.
 
 ## Redundancy
 
-Q: How do you manage backups and restores, if needed? 
-Can you handle the loss of connectivity?
-Are there alternative services and fallbacks? 
-What are your hard RAM/disk limits, if any?
-
-A: Since there is no information persisted in the system, we avoid some kind of problems with storage. 
+Since there is no information persisted in the system, we avoid some kind of problems with storage. 
 
 There will be connectivity problems as with any system. We expect most of the problems to be flaky, and solvable using a retry mechanism (use exponential back-off). In case the problem is due to one instance being down, we rely on replication to try the request with another replica, minimizing the change of not being able to actually process the image. 
 
-In the catastrophic event of not being able to process the image, we take leverage of the fact the image of the same area will be resent in a short amount of time due to the nature of the application
+In the catastrophic event of not being able to process the image, we take leverage of the fact the image of the same area will be resent in a short amount of time due to the nature of the application. This means that a single failure to analyse one image is not problematic: the problem starts if we fail to analyse the same location in many consequent requests
 
 ## Monitoring & Instrumentation
-
-How will you understand the behaviour of this feature/service in production - especially how it meets product goals / provides customer value? 
-Will there be any alerting or metrics that you will measure? 
-How will you monitor the technical behaviour of your service/feature?
 
 ### Instrumentation
 
 The first thing we want to measure are the common metrics: response time between each component, CPU and memory usage, error rate. This will give us the first idea on potential bottlenecks as our system is put live.
-
 
 ### Monitoring product goals
 
@@ -232,16 +205,13 @@ There are two main capabilities we want to monitor:
 
 2. Are we able to detect fires before human/manual detection? If everything the system does is to produce alerts for fires where a rescue team is already allocated, then it's not very useful.
 
-3. The previous 2 metrics can also be translated into lowering the average response time to fires.
+3. The previous 2 metrics can also be somehow translated into the ultimate goal of lowering the average response time to fires.
 
 ## Failure Scenarios
 
-Q: When will this design/feature/approach fail? 
-How will you mitigate the impact of these failures?
-
 ### ML related failures
 
-The first set of failures come from the data itself. Any ML-based system is heavily dependent of the data it gets. If training or live data are no good, then we may get a lot of unreliable fire predictions.
+The first set of failures come from the data itself. Any ML-based system is heavily dependent of the data it gets. If training or live data are no good, then we may get a lot of unreliable fire predictions. Since this is more in the Data Science team scope, we'll not try to solve this.
 
 ### Context dependency failures
 
@@ -249,15 +219,16 @@ Other possible problem is that we are looking at each image independently. If we
 
 ### Model scoring failures
 
-Yet another potential problem already approached is that we have one of the vegetation scoring models down for some reason. In that case the weighted average can be computed without that particular vegetation score. On the other hand we may be missing a 0.99 vegetation and only scoring based on a 0.01 vegetation type. To avoid such cases we should introduce a 'weight' threshold. If we can't score enough vegetation, then an error should be returned. This can be mitigated using replicated as we said, and safer deployments of model updates using A/B tests and/or canary deployments. 
+Yet another potential problem already approached is that we have one of the vegetation scoring models down for some reason. In that case the weighted average can be computed without that particular vegetation score. On the other hand we may be missing a 0.99 vegetation and only scoring based on a 0.01 vegetation type. To avoid such cases we should introduce a 'weight' threshold. If we can't score enough vegetation, then an error should be returned. This can be mitigated using replication as we said, and safer deployments of model updates using A/B tests and/or canary deployments. 
 
 ### Peak load failures
 
-While we could scale or system, we must be aware that the caller may be a bad actor as well (due to a bug or an attacker). This means that it could increase the load 10x or 100x. First, there's the problem the system could take some time to scale. Then there's the problem that it will increase our costs a lot if we increase 100x the number of instances. To avoid this, we can introduce some throttling mechanism. If the threshold is set, a monitoring alert would be sent and an human could decide if the increase is legit or not.
+While we could scale or system, we must be aware that the caller may be a bad actor as well (due to a bug or an attacker). This means that it could increase the load 10x or 100x. 
+
+First, there's the problem the system could take some time to scale. Then there's the problem that it will increase our costs a lot if we increase 100x the number of instances. To avoid this, we can introduce some throttling mechanism. If the threshold is set, a monitoring alert would be sent and an human could decide if the increase is legit or not.
 
 ## Risks & Open Questions
 
-What are the major risks that might prevent your software from working or be successful? 
-What don’t you know yet that might change this design or how you approach implementation?
+One of the unknowns is that we don't know how or when are requests made. Is it regularly? is it all day? is it just during some hours of the day? We also don't know where are we going to have a bottleneck: is it in the classifier? in the scoring model? in the alerting system?
 
-A: One of the unknowns is that we don't know how or when are requests made. Is it regularly? is it all day? is it just during some hours of the day? We also don't know where are we going to have a bottleneck: is it in the classifier? in the scoring model? in the alerting system?
+The other classical unknown is that we don't know what's the roadmap for the system. How are we thinking in improving? which kind of new features we want to add in the future?
