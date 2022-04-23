@@ -115,6 +115,8 @@ Given the type of data, we'd start by using JSON on the requests. Protobuffers c
 
 The only exception in the communication is between the FFAMS component and the Alert Service component. These 2 components are decoupled and use async communication through events as explained before. This allows to expand to different alerting mechanisms with less changes.
 
+Extra thought: Given the simple interface of the ML components, we could use Swagger to document the API and generate the client for whatever language we need.
+
 ## Interfaces
 
 The application as a whole just exposes a public operation: image upload for risk detection.
